@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.signal
-from gym.spaces import Box, Discrete
+from gymnasium.spaces import Box, Discrete
 
 import torch
 import torch.nn as nn
@@ -30,15 +30,15 @@ def discount_cumsum(x, discount):
     """
     magic from rllab for computing discounted cumulative sums of vectors.
 
-    input: 
-        vector x, 
-        [x0, 
-         x1, 
+    input:
+        vector x,
+        [x0,
+         x1,
          x2]
 
     output:
-        [x0 + discount * x1 + discount^2 * x2,  
-         x1 + discount * x2,
+        [x0 + discount * x1 + discount^2 * x2,
+                 x1 + discount * x2,
          x2]
     """
     return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
@@ -53,7 +53,7 @@ class Actor(nn.Module):
         raise NotImplementedError
 
     def forward(self, obs, act=None):
-        # Produce action distributions for given observations, and 
+        # Produce action distributions for given observations, and
         # optionally compute the log likelihood of given actions under
         # those distributions.
         pi = self._distribution(obs)
@@ -64,7 +64,7 @@ class Actor(nn.Module):
 
 
 class MLPCategoricalActor(Actor):
-    
+
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
         super().__init__()
         self.logits_net = mlp([obs_dim] + list(hidden_sizes) + [act_dim], activation)
@@ -75,8 +75,7 @@ class MLPCategoricalActor(Actor):
 
     def _log_prob_from_distribution(self, pi, act):
         return pi.log_prob(act)
-
-
+    
 class MLPGaussianActor(Actor):
 
     def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
@@ -102,13 +101,9 @@ class MLPCritic(nn.Module):
 
     def forward(self, obs):
         return torch.squeeze(self.v_net(obs), -1) # Critical to ensure v has right shape.
-
-
-
+    
 class MLPActorCritic(nn.Module):
-
-
-    def __init__(self, observation_space, action_space, 
+    def __init__(self, observation_space, action_space,
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
 
@@ -123,13 +118,22 @@ class MLPActorCritic(nn.Module):
         # build value function
         self.v  = MLPCritic(obs_dim, hidden_sizes, activation)
 
-    def step(self, obs):
+    def step(self, obs, deterministic=False):
         with torch.no_grad():
             pi = self.pi._distribution(obs)
-            a = pi.sample()
+            if deterministic:
+                # Use deterministic action (mean for continuous, mode for discrete)
+                if isinstance(pi, Normal):
+                    a = pi.mean
+                elif isinstance(pi, Categorical):
+                    a = torch.argmax(pi.logits, dim=-1)
+                else:
+                    a = pi.sample()  # fallback to sampling
+            else:
+                a = pi.sample()
             logp_a = self.pi._log_prob_from_distribution(pi, a)
             v = self.v(obs)
         return a.numpy(), v.numpy(), logp_a.numpy()
 
-    def act(self, obs):
-        return self.step(obs)[0]
+    def act(self, obs, deterministic=False):
+        return self.step(obs, deterministic=deterministic)[0]

@@ -15,7 +15,7 @@ setup(
     version=__version__,#'0.1',
     install_requires=[
         'cloudpickle',
-        'gym[box2d,classic_control]~=0.15.3',
+        'gymnasium[box2d,classic_control]~=0.29.1',
         'ipython',
         'joblib',
         'matplotlib',
