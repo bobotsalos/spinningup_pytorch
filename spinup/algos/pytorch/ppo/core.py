@@ -89,9 +89,16 @@ class MLPGaussianActor(Actor):
         std = torch.exp(self.log_std)
         return Normal(mu, std)
 
-    def _log_prob_from_distribution(self, pi, act):
-        return pi.log_prob(act).sum(axis=-1)    # Last axis sum needed for Torch Normal distribution
-
+    # def _log_prob_from_distribution(self, pi, act):
+    #     return pi.log_prob(act).sum(axis=-1)    # Last axis sum needed for Torch Normal distribution
+    
+    def _log_prob_from_distribution(self, pi, act_squashed):
+        eps = 1e-6
+        a = torch.clamp(act_squashed, -1 + eps, 1 - eps)
+        raw = torch.atanh(a)
+        logp_raw = pi.log_prob(raw).sum(axis=-1)
+        log_det = torch.log(1 - a.pow(2) + eps).sum(axis=-1)
+        return logp_raw - log_det
 
 class MLPCritic(nn.Module):
 
@@ -106,7 +113,7 @@ class MLPActorCritic(nn.Module):
     def __init__(self, observation_space, action_space,
                  hidden_sizes=(64,64), activation=nn.Tanh):
         super().__init__()
-
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         obs_dim = observation_space.shape[0]
 
         # policy builder depends on action space
@@ -117,23 +124,36 @@ class MLPActorCritic(nn.Module):
 
         # build value function
         self.v  = MLPCritic(obs_dim, hidden_sizes, activation)
+        self.to(device)
 
+    # def step(self, obs, deterministic=False):
+    #     with torch.no_grad():
+    #         pi = self.pi._distribution(obs)
+    #         if deterministic:
+    #             # Use deterministic action (mean for continuous, mode for discrete)
+    #             if isinstance(pi, Normal):
+    #                 a = pi.mean
+    #             elif isinstance(pi, Categorical):
+    #                 a = torch.argmax(pi.logits, dim=-1)
+    #             else:
+    #                 a = pi.sample()  # fallback to sampling
+    #         else:
+    #             a = pi.sample()
+    #         logp_a = self.pi._log_prob_from_distribution(pi, a)
+    #         v = self.v(obs)
+    #     return a.numpy(), v.numpy(), logp_a.numpy()
+    
     def step(self, obs, deterministic=False):
         with torch.no_grad():
             pi = self.pi._distribution(obs)
-            if deterministic:
-                # Use deterministic action (mean for continuous, mode for discrete)
-                if isinstance(pi, Normal):
-                    a = pi.mean
-                elif isinstance(pi, Categorical):
-                    a = torch.argmax(pi.logits, dim=-1)
-                else:
-                    a = pi.sample()  # fallback to sampling
+            if isinstance(self.pi, MLPGaussianActor):
+                raw = pi.mean if deterministic else pi.sample()
+                act = torch.tanh(raw)
             else:
-                a = pi.sample()
-            logp_a = self.pi._log_prob_from_distribution(pi, a)
+                act = pi.probs.argmax(dim=-1) if deterministic else pi.sample()
+            logp_a = self.pi._log_prob_from_distribution(pi, act)
             v = self.v(obs)
-        return a.numpy(), v.numpy(), logp_a.numpy()
+        return act.numpy(), v.numpy(), logp_a.numpy()
 
     def act(self, obs, deterministic=False):
         return self.step(obs, deterministic=deterministic)[0]
