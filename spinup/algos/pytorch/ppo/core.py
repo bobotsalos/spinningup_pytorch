@@ -153,7 +153,7 @@ class MLPActorCritic(nn.Module):
                 act = pi.probs.argmax(dim=-1) if deterministic else pi.sample()
             logp_a = self.pi._log_prob_from_distribution(pi, act)
             v = self.v(obs)
-        return act.numpy(), v.numpy(), logp_a.numpy()
+        return act, v, logp_a
 
     def act(self, obs, deterministic=False):
         return self.step(obs, deterministic=deterministic)[0]
