@@ -133,7 +133,7 @@ class MLPActorCritic(nn.Module):
                 a = pi.sample()
             logp_a = self.pi._log_prob_from_distribution(pi, a)
             v = self.v(obs)
-        return a.numpy(), v.numpy(), logp_a.numpy()
+        return a, v, logp_a
 
     def act(self, obs, deterministic=False):
         return self.step(obs, deterministic=deterministic)[0]
